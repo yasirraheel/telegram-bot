@@ -10,13 +10,13 @@ try {
     if (url.protocol !== 'https:') throw new Error('PUBLIC_URL must use HTTPS');
     const response = await fetch(new URL('/health', url), { signal: AbortSignal.timeout(15000) });
     const health = await response.json();
-    if (!response.ok || health.service !== 'Hassan Agro Telegram test bot' || !health.botConfigured) throw new Error('Public Node health endpoint is not configured/ready');
+    if (!response.ok || health.service !== 'ShahabTech Telegram shop' || !health.botConfigured) throw new Error('Public Node health endpoint is not configured/ready');
     const me = await telegram('getMe');
     await telegram('setMyCommands', { commands });
     await telegram('setWebhook', {
       url: new URL('/telegram/webhook', url).href,
       secret_token: secret,
-      allowed_updates: ['message'],
+      allowed_updates: ['message', 'callback_query', 'pre_checkout_query'],
       max_connections: 1,
     });
     console.log(`Webhook registered. Open https://t.me/${me.username} and send /start.`);

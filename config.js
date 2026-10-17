@@ -4,6 +4,7 @@ if (existsSync('.env')) process.loadEnvFile('.env');
 export const token = process.env.TELEGRAM_BOT_TOKEN || '';
 export const secret = process.env.TELEGRAM_WEBHOOK_SECRET || '';
 export const publicUrl = process.env.PUBLIC_URL || 'https://telegram-bot.hassanagro.com';
+export const adminUserId = String(process.env.ADMIN_TELEGRAM_USER_ID || '6976455363');
 export const configured = Boolean(token && /^[A-Za-z0-9_-]{32,256}$/.test(secret));
 
 export async function telegram(method, payload = {}) {

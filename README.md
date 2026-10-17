@@ -6,6 +6,16 @@ Live health endpoint: https://telegram-bot.hassanagro.com/health
 
 Commands: `/start`, `/help`, `/ping`, `/id`. Other text receives an echo. Photos and other non-text messages are ignored. IDs are returned only to the requesting chat. This bot does not store messages.
 
+## Shop dashboard and digital products
+
+The bot now includes a private dashboard at [telegram-bot.hassanagro.com/admin](https://telegram-bot.hassanagro.com/admin). Sign-in uses your Telegram owner ID (`6976455363`): click **Start secure sign-in**, send the displayed `/adminlogin 123456` code to `@ShahabTech1Bot`, then return to the browser. No dashboard password is stored. Sessions expire after seven days and can be ended with **Sign out**.
+
+From the dashboard you can create a product, choose a category, enter an integer price in Telegram Stars, choose **Activation code** or **Access link**, and paste one delivery item per line. Save a draft while preparing it, or publish it when at least one item is available. The Products view never displays the stock contents; Stock and Orders show counts and delivery state. The dashboard stores shop data in a private `data/shop.json` file on the server, excluded from Git and blocked from web access.
+
+Customers open `/start`, browse published products, see the description and Stars price, tap Buy, and receive one stock item after Telegram confirms a successful `XTR` payment. The webhook validates the owner of the invoice, currency, exact amount, product availability, and duplicate payment charge ID before removing stock. Telegram requires Stars for digital goods sold inside Telegram; see the [official Stars payments documentation](https://core.telegram.org/bots/payments-stars). Never add passwords or private account credentials as stock.
+
+The dashboard does not pretend to have live sales data: an empty shop shows zero products and orders. Test with a separate customer Telegram account and a low-value product first. Do not publish any product until its delivery codes or links are ready.
+
 ## 1. Create your bot in Telegram
 
 1. Open the official verified [@BotFather](https://t.me/BotFather).

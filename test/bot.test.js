@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { request } from 'node:http';
+import { request as httpRequest } from 'node:http';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -29,7 +29,7 @@ test('webhook authenticates, validates, replies, deduplicates, and retries failu
   const socketPath = socketDir && join(socketDir, 'app.sock');
   await new Promise(resolve => socketPath ? server.listen(socketPath, resolve) : server.listen(0, '127.0.0.1', resolve));
   const sendRequest = (path, options = {}) => new Promise((resolve, reject) => {
-    const req = request({
+    const req = httpRequest({
       ...(socketPath ? { socketPath } : { hostname: '127.0.0.1', port: server.address().port }),
       path, method: options.method || 'GET', headers: options.headers,
     }, res => {
@@ -59,6 +59,45 @@ test('webhook authenticates, validates, replies, deduplicates, and retries failu
     fail = false;
     assert.equal((await post(update(2))).status, 200);
     assert.equal(sent.length, 2);
+  } finally {
+    await new Promise(resolve => server.close(resolve));
+    if (socketDir) await rm(socketDir, { recursive: true });
+  }
+});
+
+test('admin dashboard protects data and creates products through the owner session', async () => {
+  const sent = [];
+  const server = createServer(async (method, payload) => sent.push({ method, payload }));
+  const socketDir = process.platform === 'win32' ? null : await mkdtemp(join(tmpdir(), 'tg-admin-'));
+  const socketPath = socketDir && join(socketDir, 'app.sock');
+  await new Promise(resolve => socketPath ? server.listen(socketPath, resolve) : server.listen(0, '127.0.0.1', resolve));
+  const doRequest = (path, options = {}) => new Promise((resolve, reject) => {
+    const req = httpRequest({ ...(socketPath ? { socketPath } : { hostname: '127.0.0.1', port: server.address().port }), path, method: options.method || 'GET', headers: options.headers }, res => { const chunks=[]; res.on('data', c=>chunks.push(c)); res.on('end',()=>resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks).toString() })); });
+    req.on('error', reject); req.end(options.body);
+  });
+  try {
+    assert.equal((await doRequest('/admin')).status, 200);
+    assert.equal((await doRequest('/api/admin/summary')).status, 401);
+    const challenge = await doRequest('/api/admin/auth/challenge', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    const { id, code } = JSON.parse(challenge.body);
+    assert.match(code, /^\d{6}$/);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    // Approve through the real Telegram update path using the configured owner ID.
+    await import('../config.js');
+    const update = { update_id: 4001, message: { chat: { id: 6976455363 }, from: { id: 6976455363 }, text: `/adminlogin ${code}` } };
+    const updateReq = await doRequest('/telegram/webhook', { method: 'POST', headers: { 'content-type': 'application/json', 'x-telegram-bot-api-secret-token': 'a'.repeat(32) }, body: JSON.stringify(update) });
+    assert.equal(updateReq.status, 200);
+    const approved = await doRequest(`/api/admin/auth/challenge/${id}`);
+    assert.equal(approved.status, 200);
+    const cookie = approved.headers['set-cookie']?.[0]?.split(';')[0];
+    assert.ok(cookie);
+    const summary = await doRequest('/api/admin/summary', { headers: { cookie } });
+    assert.equal(summary.status, 200);
+    const product = await doRequest('/api/admin/products', { method: 'POST', headers: { cookie, 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Test product', category: 'AI Prompts', description: 'Test delivery', priceStars: 5, deliveryType: 'Activation code', stock: ['TEST-CODE-1'], published: true }) });
+    assert.equal(product.status, 200);
+    assert.equal(JSON.parse(product.body).stockCount, 1);
+    assert.equal((await doRequest('/api/admin/summary', { headers: { cookie } })).body.includes('TEST-CODE-1'), false);
+    assert.equal(sent.some(item => item.method === 'sendMessage'), true);
   } finally {
     await new Promise(resolve => server.close(resolve));
     if (socketDir) await rm(socketDir, { recursive: true });

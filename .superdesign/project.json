@@ -1,0 +1,11 @@
+{
+  "projectId": "38316d80-4116-4b00-99dd-a4462b1e7b65",
+  "draftId": "aeccaab7-9350-4949-88e3-9a295835a648",
+  "version": 2,
+  "canvas": "https://superdesign.dev/teams/67cdaa01-8b12-436c-b5b1-0c9ebfa28766/projects/38316d80-4116-4b00-99dd-a4462b1e7b65",
+  "preview": "https://p.superdesign.dev/draft/aeccaab7-9350-4949-88e3-9a295835a648",
+  "status": "awaiting-owner-design-review",
+  "target": "Responsive product-management dashboard with add-product drawer",
+  "designSystem": ".superdesign/design-system.md",
+  "notes": "Preview uses sample data. Version 2 corrects mobile navigation and product drawer targets. Actual authentication, durable inventory, payments and deployment are not implemented."
+}
