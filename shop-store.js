@@ -5,7 +5,18 @@ import { randomUUID } from 'node:crypto';
 const dataDir = process.env.SHOP_DATA_DIR || join(process.cwd(), 'data');
 const dataFile = join(dataDir, 'shop.json');
 
-const initial = () => ({ version: 1, products: [], orders: [], settings: { shopName: 'ShahabTech Shop', supportText: 'Contact the shop owner for support.' } });
+const initial = () => ({
+  version: 2,
+  products: [],
+  orders: [],
+  wallets: [],
+  rechargeRequests: [],
+  settings: {
+    shopName: 'ShahabTech Shop',
+    supportText: 'Contact the shop owner for support.',
+    manualPaymentInstructions: 'Contact the shop owner for the current manual payment details.',
+  },
+});
 
 function ensure() {
   if (!existsSync(dataDir)) mkdirSync(dataDir, { recursive: true, mode: 0o700 });
@@ -16,7 +27,16 @@ export function readStore() {
   ensure();
   try {
     const parsed = JSON.parse(readFileSync(dataFile, 'utf8'));
-    return { ...initial(), ...parsed, products: Array.isArray(parsed.products) ? parsed.products : [], orders: Array.isArray(parsed.orders) ? parsed.orders : [] };
+    const defaults = initial();
+    return {
+      ...defaults,
+      ...parsed,
+      products: Array.isArray(parsed.products) ? parsed.products : [],
+      orders: Array.isArray(parsed.orders) ? parsed.orders : [],
+      wallets: Array.isArray(parsed.wallets) ? parsed.wallets : [],
+      rechargeRequests: Array.isArray(parsed.rechargeRequests) ? parsed.rechargeRequests : [],
+      settings: { ...defaults.settings, ...(parsed.settings || {}) },
+    };
   } catch {
     throw new Error('Shop data is unreadable; refusing to overwrite it.');
   }
@@ -41,7 +61,7 @@ export function newId(prefix) { return `${prefix}_${randomUUID().replaceAll('-',
 export function publicProduct(product) {
   return {
     id: product.id, name: product.name, category: product.category, description: product.description,
-    priceStars: product.priceStars, deliveryType: product.deliveryType, published: product.published,
+    priceStars: product.priceStars || null, pricePkr: product.pricePkr || null, deliveryType: product.deliveryType, published: product.published,
     stockCount: product.stock.length, createdAt: product.createdAt, updatedAt: product.updatedAt,
   };
 }

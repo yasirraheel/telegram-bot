@@ -4,15 +4,15 @@ Small Node.js 22+ bot using Telegram's HTTPS webhook API, with no npm dependenci
 
 Live health endpoint: https://telegram-bot.hassanagro.com/health
 
-Commands: `/start`, `/help`, `/ping`, `/id`. Other text receives an echo. Photos and other non-text messages are ignored. IDs are returned only to the requesting chat. This bot does not store messages.
+Commands: `/start`, `/help`, `/products`, `/orders`, `/wallet`, `/recharge`, `/ping`, `/id`. Other text receives an echo. Photos and other non-text messages are ignored. IDs are returned only to the requesting chat. This bot does not store normal messages.
 
 ## Shop dashboard and digital products
 
 The bot now includes a private dashboard at [telegram-bot.hassanagro.com/admin](https://telegram-bot.hassanagro.com/admin). Sign-in uses your Telegram owner ID (`6976455363`): click **Start secure sign-in**, send the displayed `/adminlogin 123456` code to `@ShahabTech1Bot`, then return to the browser. No dashboard password is stored. Sessions expire after seven days and can be ended with **Sign out**.
 
-From the dashboard you can create a product, choose a category, enter an integer price in Telegram Stars, choose **Activation code** or **Access link**, and paste one delivery item per line. Save a draft while preparing it, or publish it when at least one item is available. The Products view never displays the stock contents; Stock and Orders show counts and delivery state. The dashboard stores shop data in a private `data/shop.json` file on the server, excluded from Git and blocked from web access.
+From the dashboard you can create a product, choose a category, add a PKR wallet price and/or an integer Telegram Stars price, choose **Activation code** or **Access link**, and paste one delivery item per line. The Settings view contains the manual payment instructions shown to buyers. The Wallet requests view lets you verify a buyer's transfer and approve or reject the recharge; approval credits the buyer's PKR wallet. Save a draft while preparing it, or publish it when at least one item is available. The Products view never displays the stock contents; Stock and Orders show counts and delivery state. The dashboard stores shop data in a private `data/shop.json` file on the server, excluded from Git and blocked from web access.
 
-Customers open `/start`, browse published products, see the description and Stars price, tap Buy, and receive one stock item after Telegram confirms a successful `XTR` payment. The webhook validates the owner of the invoice, currency, exact amount, product availability, and duplicate payment charge ID before removing stock. Telegram requires Stars for digital goods sold inside Telegram; see the [official Stars payments documentation](https://core.telegram.org/bots/payments-stars). Never add passwords or private account credentials as stock.
+Customers open `/start`, browse published products, and choose either Telegram Stars or an approved PKR wallet balance. For a manual recharge, the buyer taps **Wallet**, follows the instructions, transfers the amount, then sends `/recharge AMOUNT TRANSACTION_REFERENCE`. The owner approves the request from **Wallet requests**; the bot credits the wallet and can then deliver a product automatically after a wallet purchase. Stars payments still validate the invoice owner, currency, exact amount, product availability, and duplicate payment charge ID before removing stock. Telegram requires Stars for digital goods sold inside Telegram; see the [official Stars payments documentation](https://core.telegram.org/bots/payments-stars). Never add passwords or private account credentials as stock.
 
 The dashboard does not pretend to have live sales data: an empty shop shows zero products and orders. Test with a separate customer Telegram account and a low-value product first. Do not publish any product until its delivery codes or links are ready.
 
@@ -57,7 +57,8 @@ node scripts/telegram.js status
 3. Send `/ping`. Expected reply: `Pong! The bot is online.`
 4. Send `Hello`. Expected reply: `You said: Hello`.
 5. Send `/id` to see your Telegram user and chat IDs.
-6. Send `/help` to list commands.
+6. Send `/wallet` to view the wallet and its recharge button.
+7. Send `/help` to list commands.
 
 Start testing in a private chat. For groups, add the bot to the group and use `/ping@YOUR_BOT_USERNAME`. Telegram's default privacy mode limits which group messages bots receive; normal echo messages may not reach it. You do not need to disable privacy for private chat tests. A user must open/start the bot before the bot can communicate with them privately.
 
