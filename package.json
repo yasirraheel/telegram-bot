@@ -1,0 +1,14 @@
+{
+  "name": "hassanagro-telegram-test-bot",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node server.js",
+    "build": "node --check server.js",
+    "test": "node --test",
+    "telegram:setup": "node scripts/telegram.js setup",
+    "telegram:status": "node scripts/telegram.js status"
+  }
+}

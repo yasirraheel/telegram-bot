@@ -1,0 +1,10 @@
+Options -Indexes
+PassengerEnabled on
+PassengerAppRoot /home/u181781564/domains/hassanagro.com/public_html/telegram-bot
+PassengerBaseURI /
+PassengerAppType node
+PassengerStartupFile app.cjs
+PassengerNodejs /opt/alt/alt-nodejs22/root/usr/bin/node
+<FilesMatch "^(\.|package.*\.json$|.*\.(cjs|js|md|log|zip)$)">
+  Require all denied
+</FilesMatch>
