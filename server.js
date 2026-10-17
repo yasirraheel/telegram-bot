@@ -76,10 +76,11 @@ async function sendOrders(send, chatId, userId) {
 
 async function sendProducts(send, chatId) {
   const store = readStore();
+  const shopName = store.settings?.shopName || 'ShahabTech Shop';
   const products = store.products.filter(product => product.published && product.stock.length > 0);
-  if (!products.length) return send('sendMessage', { chat_id: chatId, text: `🛒 ${store.settings.shopName.toUpperCase()}\n\nThe shop is being prepared. Please check back soon.` });
+  if (!products.length) return send('sendMessage', { chat_id: chatId, text: `🛒 ${shopName.toUpperCase()}\n\nThe shop is being prepared. Please check back soon.` });
   const stockLine = products.reduce((sum, product) => sum + product.stock.length, 0);
-  const text = `🛒 ${store.settings.shopName.toUpperCase()}\n\nDigital tools, prompts and templates with instant delivery.\n\n📦 AVAILABLE PRODUCTS · ${stockLine} items\nTap a product to see its details and buy securely with Telegram Stars ⭐`;
+  const text = `🛒 ${shopName.toUpperCase()}\n\nDigital tools, prompts and templates with instant delivery.\n\n📦 AVAILABLE PRODUCTS · ${stockLine} items\nTap a product to see its details and buy securely with Telegram Stars ⭐`;
   return send('sendMessage', { chat_id: chatId, text, reply_markup: shopKeyboard(products) });
 }
 
@@ -120,14 +121,16 @@ async function handleCallback(send, query) {
   if (action === 'p') {
     const product = readStore().products.find(item => item.id === id && item.published && item.stock.length);
     if (!product) return send('sendMessage', { chat_id: chatId, text: 'That product is no longer available.' });
-    return send('sendMessage', { chat_id: chatId, text: `🛍 PRODUCT DETAILS\n\n${productEmoji(product)} ${product.name}\n\n${product.description}\n\n💰 Price: ⭐ ${product.priceStars}\n📦 Stock: ${product.stock.length} available\n⚡ Delivery: Instant ${product.deliveryType.toLowerCase()}\n\nReady to continue?`, reply_markup: { inline_keyboard: [[{ text: `🛒 Buy now · ⭐ ${product.priceStars}`, callback_data: `shop:b:${product.id}` }], [{ text: '↩ Back to shop', callback_data: 'shop:list' }]] } });
+    const deliveryType = String(product.deliveryType || 'Activation code');
+    return send('sendMessage', { chat_id: chatId, text: `🛍 PRODUCT DETAILS\n\n${productEmoji(product)} ${product.name}\n\n${product.description}\n\n💰 Price: ⭐ ${product.priceStars}\n📦 Stock: ${product.stock.length} available\n⚡ Delivery: Instant ${deliveryType.toLowerCase()}\n\nReady to continue?`, reply_markup: { inline_keyboard: [[{ text: `🛒 Buy now · ⭐ ${product.priceStars}`, callback_data: `shop:b:${product.id}` }], [{ text: '↩ Back to shop', callback_data: 'shop:list' }]] } });
   }
   if (action === 'b') {
     const product = readStore().products.find(item => item.id === id && item.published && item.stock.length);
     if (!product) return send('sendMessage', { chat_id: chatId, text: 'That product is sold out.' });
+    const deliveryType = String(product.deliveryType || 'Activation code');
     const orderId = newId('ord');
     pendingPurchases.set(`${chatId}:${product.id}`, { userId: String(query.from?.id), orderId, expiresAt: Date.now() + 10 * 60 * 1000 });
-    return send('sendMessage', { chat_id: chatId, text: `🧾 CONFIRM PURCHASE\n\nOrder ID: ${orderId}\n📦 Product: ${product.name}\n🔢 Quantity: 1\n💰 Unit price: ⭐ ${product.priceStars}\n💵 Total: ⭐ ${product.priceStars}\n\n💳 Payment: Telegram Stars ⭐\n⚡ Delivery: Your ${product.deliveryType.toLowerCase()} is sent automatically after payment.\n\nConfirm your purchase?`, reply_markup: { inline_keyboard: [[{ text: `✅ Confirm · ⭐ ${product.priceStars}`, callback_data: `shop:c:${product.id}` }, { text: '❌ Cancel', callback_data: `shop:x:${product.id}` }]] } });
+    return send('sendMessage', { chat_id: chatId, text: `🧾 CONFIRM PURCHASE\n\nOrder ID: ${orderId}\n📦 Product: ${product.name}\n🔢 Quantity: 1\n💰 Unit price: ⭐ ${product.priceStars}\n💵 Total: ⭐ ${product.priceStars}\n\n💳 Payment: Telegram Stars ⭐\n⚡ Delivery: Your ${deliveryType.toLowerCase()} is sent automatically after payment.\n\nConfirm your purchase?`, reply_markup: { inline_keyboard: [[{ text: `✅ Confirm · ⭐ ${product.priceStars}`, callback_data: `shop:c:${product.id}` }, { text: '❌ Cancel', callback_data: `shop:x:${product.id}` }]] } });
   }
   if (action === 'c') {
     const pendingKey = `${chatId}:${id}`; const pending = pendingPurchases.get(pendingKey);
