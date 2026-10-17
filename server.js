@@ -8,6 +8,7 @@ import { newId, publicProduct, readStore, updateStore } from './shop-store.js';
 
 const sessions = new Map();
 const challenges = new Map();
+const pendingPurchases = new Map();
 
 function authorized(value) {
   const actual = Buffer.from(typeof value === 'string' ? value : '');
@@ -38,12 +39,48 @@ async function bodyJson(req, maxBytes = 65536) {
 function adminOnly(req, res) { const userId = sessionUser(req); if (!userId) { sendJson(res, 401, { error: 'Sign-in required' }); return null; } return userId; }
 function cleanLines(value) { return (Array.isArray(value) ? value : String(value || '').split(/\r?\n/)).map(item => String(item).trim()).filter(Boolean).slice(0, 10000); }
 function publicOrder(order) { return { id: order.id, productName: order.productName, amountStars: order.amountStars, userId: order.userId, deliveryStatus: order.deliveryStatus, createdAt: order.createdAt }; }
-function shopKeyboard(products) { return { inline_keyboard: products.map(product => [{ text: `${product.name} · ⭐ ${product.priceStars}`, callback_data: `shop:p:${product.id}` }]) }; }
+function productEmoji(product) {
+  const value = `${product.category || ''} ${product.name || ''}`.toLowerCase();
+  if (/design|graphic|logo|template/.test(value)) return '🎨';
+  if (/code|dev|react|software|saas/.test(value)) return '💻';
+  if (/video|music|audio/.test(value)) return '🎬';
+  if (/marketing|prompt|ai|automation/.test(value)) return '🧠';
+  if (/course|learn|education/.test(value)) return '📚';
+  return '✨';
+}
+
+function productButtonText(product) {
+  const label = `${productEmoji(product)} ${product.name}`.slice(0, 46);
+  return `${label} · ⭐ ${product.priceStars}`.slice(0, 64);
+}
+
+function shopKeyboard(products) {
+  return {
+    inline_keyboard: [
+      ...products.map(product => [{ text: productButtonText(product), callback_data: `shop:p:${product.id}` }]),
+      [{ text: '📦 My orders', callback_data: 'shop:orders' }],
+    ],
+  };
+}
+
+function ordersText(orders) {
+  return orders.length
+    ? `🧾 YOUR ORDERS\n\n${orders.map(order => `${order.id}\n${order.productName} · ⭐ ${order.amountStars} · ${order.deliveryStatus}`).join('\n\n')}`
+    : '🧾 YOUR ORDERS\n\nYou have no orders yet.';
+}
+
+async function sendOrders(send, chatId, userId) {
+  const orders = readStore().orders.filter(order => String(order.userId) === String(userId)).slice(-10).reverse();
+  return send('sendMessage', { chat_id: chatId, text: ordersText(orders), reply_markup: { inline_keyboard: [[{ text: '🛒 Back to shop', callback_data: 'shop:list' }]] } });
+}
 
 async function sendProducts(send, chatId) {
-  const products = readStore().products.filter(product => product.published && product.stock.length > 0);
-  if (!products.length) return send('sendMessage', { chat_id: chatId, text: 'The shop is being prepared. Please check back soon.' });
-  return send('sendMessage', { chat_id: chatId, text: 'Choose a digital product:', reply_markup: shopKeyboard(products) });
+  const store = readStore();
+  const products = store.products.filter(product => product.published && product.stock.length > 0);
+  if (!products.length) return send('sendMessage', { chat_id: chatId, text: `🛒 ${store.settings.shopName.toUpperCase()}\n\nThe shop is being prepared. Please check back soon.` });
+  const stockLine = products.reduce((sum, product) => sum + product.stock.length, 0);
+  const text = `🛒 ${store.settings.shopName.toUpperCase()}\n\nDigital tools, prompts and templates with instant delivery.\n\n📦 AVAILABLE PRODUCTS · ${stockLine} items\nTap a product to see its details and buy securely with Telegram Stars ⭐`;
+  return send('sendMessage', { chat_id: chatId, text, reply_markup: shopKeyboard(products) });
 }
 
 async function handleAdminLogin(send, message, code) {
@@ -54,7 +91,7 @@ async function handleAdminLogin(send, message, code) {
   return send('sendMessage', { chat_id: message.chat.id, text: 'Dashboard sign-in approved. Return to your browser.' });
 }
 
-function invoicePayload(productId, userId) { return JSON.stringify({ productId, userId: String(userId) }); }
+function invoicePayload(productId, userId, orderId) { return JSON.stringify({ productId, userId: String(userId), orderId }); }
 
 async function handleSuccessfulPayment(send, message) {
   const payment = message.successful_payment; let payload;
@@ -67,7 +104,7 @@ async function handleSuccessfulPayment(send, message) {
       const product = store.products.find(item => item.id === payload.productId && item.published);
       if (!product || product.priceStars !== payment.total_amount || !product.stock.length) throw new Error('Product unavailable after payment');
       const item = product.stock.shift();
-      const created = { id: newId('ord'), productId: product.id, productName: product.name, userId: String(message.from.id), chatId: message.chat.id, amountStars: payment.total_amount, currency: 'XTR', paymentChargeId: payment.telegram_payment_charge_id, deliveryItem: item, deliveryStatus: 'delivered', createdAt: new Date().toISOString() };
+      const created = { id: payload.orderId || newId('ord'), productId: product.id, productName: product.name, userId: String(message.from.id), chatId: message.chat.id, amountStars: payment.total_amount, currency: 'XTR', paymentChargeId: payment.telegram_payment_charge_id, deliveryItem: item, deliveryStatus: 'delivered', createdAt: new Date().toISOString() };
       store.orders.push(created); return created;
     });
   } catch { return send('sendMessage', { chat_id: message.chat.id, text: 'Your payment was received, but stock is temporarily unavailable. Please contact the shop owner with your Telegram payment receipt.' }); }
@@ -79,15 +116,30 @@ async function handleCallback(send, query) {
   await send('answerCallbackQuery', { callback_query_id: query.id });
   const chatId = query.message?.chat?.id; const [scope, action, id] = String(query.data || '').split(':'); if (scope !== 'shop') return;
   if (action === 'list') return sendProducts(send, chatId);
+  if (action === 'orders') return sendOrders(send, chatId, query.from?.id);
   if (action === 'p') {
     const product = readStore().products.find(item => item.id === id && item.published && item.stock.length);
     if (!product) return send('sendMessage', { chat_id: chatId, text: 'That product is no longer available.' });
-    return send('sendMessage', { chat_id: chatId, text: `${product.name}\n\n${product.description}\n\nPrice: ⭐ ${product.priceStars}\nAvailable: ${product.stock.length}`, reply_markup: { inline_keyboard: [[{ text: `Buy for ⭐ ${product.priceStars}`, callback_data: `shop:b:${product.id}` }], [{ text: '← Back to products', callback_data: 'shop:list' }]] } });
+    return send('sendMessage', { chat_id: chatId, text: `🛍 PRODUCT DETAILS\n\n${productEmoji(product)} ${product.name}\n\n${product.description}\n\n💰 Price: ⭐ ${product.priceStars}\n📦 Stock: ${product.stock.length} available\n⚡ Delivery: Instant ${product.deliveryType.toLowerCase()}\n\nReady to continue?`, reply_markup: { inline_keyboard: [[{ text: `🛒 Buy now · ⭐ ${product.priceStars}`, callback_data: `shop:b:${product.id}` }], [{ text: '↩ Back to shop', callback_data: 'shop:list' }]] } });
   }
   if (action === 'b') {
     const product = readStore().products.find(item => item.id === id && item.published && item.stock.length);
     if (!product) return send('sendMessage', { chat_id: chatId, text: 'That product is sold out.' });
-    return send('sendInvoice', { chat_id: chatId, title: product.name.slice(0, 32), description: product.description.slice(0, 255), payload: invoicePayload(product.id, query.from.id), currency: 'XTR', prices: [{ label: product.name.slice(0, 32), amount: product.priceStars }], provider_token: '' });
+    const orderId = newId('ord');
+    pendingPurchases.set(`${chatId}:${product.id}`, { userId: String(query.from?.id), orderId, expiresAt: Date.now() + 10 * 60 * 1000 });
+    return send('sendMessage', { chat_id: chatId, text: `🧾 CONFIRM PURCHASE\n\nOrder ID: ${orderId}\n📦 Product: ${product.name}\n🔢 Quantity: 1\n💰 Unit price: ⭐ ${product.priceStars}\n💵 Total: ⭐ ${product.priceStars}\n\n💳 Payment: Telegram Stars ⭐\n⚡ Delivery: Your ${product.deliveryType.toLowerCase()} is sent automatically after payment.\n\nConfirm your purchase?`, reply_markup: { inline_keyboard: [[{ text: `✅ Confirm · ⭐ ${product.priceStars}`, callback_data: `shop:c:${product.id}` }, { text: '❌ Cancel', callback_data: `shop:x:${product.id}` }]] } });
+  }
+  if (action === 'c') {
+    const pendingKey = `${chatId}:${id}`; const pending = pendingPurchases.get(pendingKey);
+    const product = readStore().products.find(item => item.id === id && item.published && item.stock.length);
+    if (!pending || pending.expiresAt < Date.now() || String(pending.userId) !== String(query.from?.id)) return send('sendMessage', { chat_id: chatId, text: 'This purchase confirmation expired. Please choose the product again.', reply_markup: { inline_keyboard: [[{ text: '🛒 Back to shop', callback_data: 'shop:list' }]] } });
+    if (!product) { pendingPurchases.delete(pendingKey); return send('sendMessage', { chat_id: chatId, text: 'That product is sold out. Please choose another product.', reply_markup: { inline_keyboard: [[{ text: '🛒 Back to shop', callback_data: 'shop:list' }]] } }); }
+    pendingPurchases.delete(pendingKey);
+    return send('sendInvoice', { chat_id: chatId, title: product.name.slice(0, 32), description: product.description.slice(0, 255), payload: invoicePayload(product.id, query.from.id, pending.orderId), currency: 'XTR', prices: [{ label: product.name.slice(0, 32), amount: product.priceStars }], provider_token: '' });
+  }
+  if (action === 'x') {
+    pendingPurchases.delete(`${chatId}:${id}`);
+    return send('sendMessage', { chat_id: chatId, text: '❌ Purchase cancelled. Your shop is still open.', reply_markup: { inline_keyboard: [[{ text: '🛒 Back to shop', callback_data: 'shop:list' }]] } });
   }
 }
 
@@ -102,8 +154,8 @@ async function handleUpdate(send, update) {
   if (message.successful_payment) return handleSuccessfulPayment(send, message);
   const command = message.text.trim().split(/\s/)[0].split('@')[0].toLowerCase(); const argument = message.text.trim().split(/\s+/).slice(1).join(' ');
   if (command === '/adminlogin') return handleAdminLogin(send, message, argument);
-  if (command === '/products' || command === '/start') { await send('sendMessage', { chat_id: message.chat.id, text: replyFor({ text: '/start', chat: message.chat, from: message.from }), reply_markup: { inline_keyboard: [[{ text: 'Browse products', callback_data: 'shop:list' }]] } }); return command === '/products' ? sendProducts(send, message.chat.id) : undefined; }
-  if (command === '/orders') { const orders = readStore().orders.filter(order => String(order.userId) === String(message.from?.id)).slice(-10).reverse(); return send('sendMessage', { chat_id: message.chat.id, text: orders.length ? orders.map(order => `${order.id} · ${order.productName} · ⭐ ${order.amountStars} · ${order.deliveryStatus}`).join('\n') : 'You have no orders yet.' }); }
+  if (command === '/products' || command === '/start') return sendProducts(send, message.chat.id);
+  if (command === '/orders') return sendOrders(send, message.chat.id, message.from?.id);
   const text = replyFor(message); if (text) return send('sendMessage', { chat_id: message.chat.id, text });
 }
 

@@ -7,6 +7,7 @@ import { join } from 'node:path';
 
 process.env.TELEGRAM_BOT_TOKEN = 'test-only';
 process.env.TELEGRAM_WEBHOOK_SECRET = 'a'.repeat(32);
+process.env.SHOP_DATA_DIR = await mkdtemp(join(tmpdir(), 'tg-shop-data-'));
 const { createServer } = await import('../server.js');
 const { replyFor } = await import('../bot.js');
 
@@ -95,9 +96,33 @@ test('admin dashboard protects data and creates products through the owner sessi
     assert.equal(summary.status, 200);
     const product = await doRequest('/api/admin/products', { method: 'POST', headers: { cookie, 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Test product', category: 'AI Prompts', description: 'Test delivery', priceStars: 5, deliveryType: 'Activation code', stock: ['TEST-CODE-1'], published: true }) });
     assert.equal(product.status, 200);
-    assert.equal(JSON.parse(product.body).stockCount, 1);
+    const createdProduct = JSON.parse(product.body);
+    assert.equal(createdProduct.stockCount, 1);
     assert.equal((await doRequest('/api/admin/summary', { headers: { cookie } })).body.includes('TEST-CODE-1'), false);
-    assert.equal(sent.some(item => item.method === 'sendMessage'), true);
+
+    const webhook = (update, updateId) => doRequest('/telegram/webhook', { method: 'POST', headers: { 'content-type': 'application/json', 'x-telegram-bot-api-secret-token': 'a'.repeat(32) }, body: JSON.stringify({ update_id: updateId, ...update }) });
+    assert.equal((await webhook({ message: { chat: { id: 6976455363 }, from: { id: 6976455363 }, text: '/start' } }, 4002)).status, 200);
+    const menu = sent.find(item => item.method === 'sendMessage' && item.payload.text.includes('AVAILABLE PRODUCTS'));
+    assert.ok(menu);
+    assert.match(menu.payload.text, /instant delivery/);
+    assert.match(menu.payload.reply_markup.inline_keyboard[0][0].text, /^🧠 Test product · ⭐ 5$/);
+
+    assert.equal((await webhook({ callback_query: { id: 'q-product', from: { id: 6976455363 }, message: { chat: { id: 6976455363 } }, data: `shop:p:${createdProduct.id}` } }, 4003)).status, 200);
+    const details = sent.find(item => item.method === 'sendMessage' && item.payload.text.includes('PRODUCT DETAILS'));
+    assert.ok(details);
+    assert.match(details.payload.reply_markup.inline_keyboard[0][0].text, /Buy now/);
+
+    assert.equal((await webhook({ callback_query: { id: 'q-buy', from: { id: 6976455363 }, message: { chat: { id: 6976455363 } }, data: `shop:b:${createdProduct.id}` } }, 4004)).status, 200);
+    const confirmation = sent.find(item => item.method === 'sendMessage' && item.payload.text.includes('CONFIRM PURCHASE'));
+    assert.ok(confirmation);
+    assert.match(confirmation.payload.text, /Telegram Stars/);
+    assert.equal(confirmation.payload.reply_markup.inline_keyboard[0][0].callback_data, `shop:c:${createdProduct.id}`);
+
+    assert.equal((await webhook({ callback_query: { id: 'q-confirm', from: { id: 6976455363 }, message: { chat: { id: 6976455363 } }, data: `shop:c:${createdProduct.id}` } }, 4005)).status, 200);
+    const invoice = sent.find(item => item.method === 'sendInvoice');
+    assert.ok(invoice);
+    assert.equal(JSON.parse(invoice.payload.payload).productId, createdProduct.id);
+    assert.match(JSON.parse(invoice.payload.payload).orderId, /^ord_/);
   } finally {
     await new Promise(resolve => server.close(resolve));
     if (socketDir) await rm(socketDir, { recursive: true });
