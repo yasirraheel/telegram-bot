@@ -5,6 +5,6 @@ PassengerBaseURI /
 PassengerAppType node
 PassengerStartupFile app.cjs
 PassengerNodejs /opt/alt/alt-nodejs22/root/usr/bin/node
-<FilesMatch "^(\.|package.*\.json$|.*\.(cjs|js|md|log|zip)$)">
+<FilesMatch "^(\.|package.*\.json$|.*\.(cjs|js|sh|md|log|zip|tar|gz)$)">
   Require all denied
 </FilesMatch>
