@@ -79,7 +79,7 @@ test('admin dashboard protects data and creates products through the owner sessi
   try {
     assert.equal((await doRequest('/admin')).status, 200);
     assert.equal((await doRequest('/api/admin/summary')).status, 401);
-    const challenge = await doRequest('/api/admin/auth/challenge', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    const challenge = await doRequest('/api/admin/auth/challenge', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ remember: true }) });
     const { id, code } = JSON.parse(challenge.body);
     assert.match(code, /^\d{6}$/);
     await new Promise(resolve => setTimeout(resolve, 0));
@@ -92,6 +92,7 @@ test('admin dashboard protects data and creates products through the owner sessi
     assert.equal(approved.status, 200);
     const cookie = approved.headers['set-cookie']?.[0]?.split(';')[0];
     assert.ok(cookie);
+    assert.match(approved.headers['set-cookie'][0], /Max-Age=15552000/);
     const summary = await doRequest('/api/admin/summary', { headers: { cookie } });
     assert.equal(summary.status, 200);
     const initialSummary = JSON.parse(summary.body);

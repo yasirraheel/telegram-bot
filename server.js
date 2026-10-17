@@ -1,5 +1,5 @@
 import http from 'node:http';
-import { randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { adminUserId, configured, secret, telegram } from './config.js';
 import { commands, replyFor } from './bot.js';
@@ -9,6 +9,10 @@ import { newId, publicProduct, readStore, updateStore } from './shop-store.js';
 const sessions = new Map();
 const challenges = new Map();
 const pendingPurchases = new Map();
+const revokedSessions = new Map();
+
+const SESSION_DAYS = 30;
+const REMEMBERED_SESSION_DAYS = 180;
 
 function authorized(value) {
   const actual = Buffer.from(typeof value === 'string' ? value : '');
@@ -20,11 +24,34 @@ function cookies(req) {
   return Object.fromEntries((req.headers.cookie || '').split(';').map(part => part.trim().split('=')));
 }
 
+function sessionToken(userId, expiresAt) {
+  const payload = Buffer.from(JSON.stringify({ userId: String(userId), expiresAt, nonce: randomBytes(12).toString('hex') })).toString('base64url');
+  const signature = createHmac('sha256', secret).update(payload).digest('base64url');
+  return `${payload}.${signature}`;
+}
+
+function verifiedSession(token) {
+  if (!token || revokedSessions.has(token)) return null;
+  const [payload, signature] = token.split('.');
+  if (!payload || !signature) return null;
+  const expected = createHmac('sha256', secret).update(payload).digest('base64url');
+  const actualBuffer = Buffer.from(signature);
+  const expectedBuffer = Buffer.from(expected);
+  if (actualBuffer.length !== expectedBuffer.length || !timingSafeEqual(actualBuffer, expectedBuffer)) return null;
+  try {
+    const value = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    return value.expiresAt > Date.now() ? value : null;
+  } catch { return null; }
+}
+
 function sessionUser(req) {
   const token = cookies(req).admin_session;
   const session = token && sessions.get(token);
-  if (!session || session.expiresAt < Date.now()) { if (token) sessions.delete(token); return null; }
-  return session.userId;
+  if (session) {
+    if (session.expiresAt < Date.now()) { sessions.delete(token); return null; }
+    return session.userId;
+  }
+  return verifiedSession(token)?.userId || null;
 }
 
 function sendJson(res, status, body, headers = {}) { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', ...headers }); res.end(JSON.stringify(body)); }
@@ -393,9 +420,26 @@ export function createServer(send = telegram) {
       if (req.method === 'GET' && (path === '/' || path === '/health')) return sendJson(res, 200, { service: 'ShahabTech Telegram shop', status: 'running', botConfigured: configured, dashboard: '/admin' });
       if (req.method === 'GET' && path === '/admin') return sendHtml(res, 200, sessionUser(req) ? dashboardPage() : loginPage());
       if (path.startsWith('/api/admin/auth/')) {
-        if (req.method === 'POST' && path === '/api/admin/auth/challenge') { const id = randomBytes(12).toString('hex'); const code = String(randomInt(100000, 1000000)); challenges.set(id, { id, code, expiresAt: Date.now() + 5 * 60 * 1000, approved: false }); return sendJson(res, 200, { id, code }); }
-        if (req.method === 'GET' && path.startsWith('/api/admin/auth/challenge/')) { const id = path.split('/').pop(); const challenge = challenges.get(id); if (!challenge || challenge.expiresAt < Date.now()) return sendJson(res, 200, { expired: true }); if (!challenge.approved) return sendJson(res, 200, { approved: false }); const token = randomBytes(32).toString('hex'); sessions.set(token, { userId: challenge.userId, expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000 }); challenges.delete(id); return sendJson(res, 200, { approved: true }, { 'Set-Cookie': `admin_session=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=604800` }); }
-        if (req.method === 'POST' && path === '/api/admin/auth/logout') { const token = cookies(req).admin_session; if (token) sessions.delete(token); return sendJson(res, 200, { ok: true }, { 'Set-Cookie': 'admin_session=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Strict' }); }
+        if (req.method === 'POST' && path === '/api/admin/auth/challenge') {
+          const data = await bodyJson(req, 4096);
+          const id = randomBytes(12).toString('hex'); const code = String(randomInt(100000, 1000000));
+          challenges.set(id, { id, code, remember: data.remember === true, expiresAt: Date.now() + 5 * 60 * 1000, approved: false });
+          return sendJson(res, 200, { id, code });
+        }
+        if (req.method === 'GET' && path.startsWith('/api/admin/auth/challenge/')) {
+          const id = path.split('/').pop(); const challenge = challenges.get(id);
+          if (!challenge || challenge.expiresAt < Date.now()) return sendJson(res, 200, { expired: true });
+          if (!challenge.approved) return sendJson(res, 200, { approved: false });
+          const maxAge = (challenge.remember ? REMEMBERED_SESSION_DAYS : SESSION_DAYS) * 24 * 60 * 60;
+          const expiresAt = Date.now() + maxAge * 1000;
+          const token = sessionToken(challenge.userId, expiresAt);
+          sessions.set(token, { userId: challenge.userId, expiresAt }); challenges.delete(id);
+          return sendJson(res, 200, { approved: true, remember: challenge.remember }, { 'Set-Cookie': `admin_session=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${maxAge}` });
+        }
+        if (req.method === 'POST' && path === '/api/admin/auth/logout') {
+          const token = cookies(req).admin_session; if (token) { sessions.delete(token); revokedSessions.set(token, Date.now() + REMEMBERED_SESSION_DAYS * 24 * 60 * 60 * 1000); }
+          return sendJson(res, 200, { ok: true }, { 'Set-Cookie': 'admin_session=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Strict' });
+        }
       }
       if (path.startsWith('/api/admin/')) return adminApi(req, res, send);
       if (req.method !== 'POST' || path !== '/telegram/webhook') return sendJson(res, 404, { error: 'Not found' });
