@@ -14,6 +14,8 @@ From the dashboard you can create a product, choose a category, add a PKR wallet
 
 Customers open `/start`, browse published products, and choose either Telegram Stars or an approved PKR wallet balance. For a manual recharge, the buyer taps **Wallet**, follows the instructions, transfers the amount, then sends `/recharge AMOUNT TRANSACTION_REFERENCE`. The owner approves the request from **Wallet requests**; the bot credits the wallet and can then deliver a product automatically after a wallet purchase. Stars payments still validate the invoice owner, currency, exact amount, product availability, and duplicate payment charge ID before removing stock. Telegram requires Stars for digital goods sold inside Telegram; see the [official Stars payments documentation](https://core.telegram.org/bots/payments-stars). Never add passwords or private account credentials as stock.
 
+The Telegram command menu is managed in **Admin → Settings → Telegram command menu**. Checked commands are visible to every user and enabled in the bot; unchecked commands are removed from Telegram's menu and ignored. `/ping` only reports whether the bot is responding. `/id` returns the requesting user's own Telegram user and chat IDs; it does not reveal another user's ID. Adding a brand-new command with custom behavior still requires a code change.
+
 The dashboard does not pretend to have live sales data: an empty shop shows zero products and orders. Test with a separate customer Telegram account and a low-value product first. Do not publish any product until its delivery codes or links are ready.
 
 ## 1. Create your bot in Telegram

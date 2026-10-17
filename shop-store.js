@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { commands as defaultCommands } from './bot.js';
 
 const dataDir = process.env.SHOP_DATA_DIR || join(process.cwd(), 'data');
 const dataFile = join(dataDir, 'shop.json');
@@ -15,6 +16,7 @@ const initial = () => ({
     shopName: 'ShahabTech Shop',
     supportText: 'Contact the shop owner for support.',
     manualPaymentInstructions: 'Contact the shop owner for the current manual payment details.',
+    commands: defaultCommands.map(command => ({ ...command })),
   },
 });
 
@@ -28,6 +30,10 @@ export function readStore() {
   try {
     const parsed = JSON.parse(readFileSync(dataFile, 'utf8'));
     const defaults = initial();
+    const configuredCommands = Array.isArray(parsed.settings?.commands) ? parsed.settings.commands : defaults.settings.commands;
+    const normalizedCommands = defaultCommands
+      .filter(command => configuredCommands.some(item => item?.command === command.command && item?.enabled !== false))
+      .map(command => ({ command: command.command, description: String(configuredCommands.find(item => item?.command === command.command)?.description || command.description).slice(0, 256) }));
     return {
       ...defaults,
       ...parsed,
@@ -35,7 +41,11 @@ export function readStore() {
       orders: Array.isArray(parsed.orders) ? parsed.orders : [],
       wallets: Array.isArray(parsed.wallets) ? parsed.wallets : [],
       rechargeRequests: Array.isArray(parsed.rechargeRequests) ? parsed.rechargeRequests : [],
-      settings: { ...defaults.settings, ...(parsed.settings || {}) },
+      settings: {
+        ...defaults.settings,
+        ...(parsed.settings || {}),
+        commands: normalizedCommands,
+      },
     };
   } catch {
     throw new Error('Shop data is unreadable; refusing to overwrite it.');

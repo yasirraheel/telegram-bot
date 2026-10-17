@@ -38,6 +38,15 @@ async function bodyJson(req, maxBytes = 65536) {
 
 function adminOnly(req, res) { const userId = sessionUser(req); if (!userId) { sendJson(res, 401, { error: 'Sign-in required' }); return null; } return userId; }
 function cleanLines(value) { return (Array.isArray(value) ? value : String(value || '').split(/\r?\n/)).map(item => String(item).trim()).filter(Boolean).slice(0, 10000); }
+function commandMenu(store) {
+  const selected = new Map((store.settings.commands || []).map(command => [command.command, command]));
+  return commands.filter(command => selected.has(command.command)).map(command => ({ command: command.command, description: selected.get(command.command).description || command.description }));
+}
+function commandEnabled(command) { return commandMenu(readStore()).some(item => item.command === command.replace(/^\//, '')); }
+async function sendHelp(send, chatId) {
+  const available = commandMenu(readStore());
+  return send('sendMessage', { chat_id: chatId, text: `AVAILABLE COMMANDS\n\n${available.map(item => `/${item.command} — ${item.description}`).join('\n')}` });
+}
 function publicOrder(order) {
   return {
     id: order.id,
@@ -271,6 +280,8 @@ async function handleUpdate(send, update) {
   if (message.successful_payment) return handleSuccessfulPayment(send, message);
   const command = message.text.trim().split(/\s/)[0].split('@')[0].toLowerCase(); const argument = message.text.trim().split(/\s+/).slice(1).join(' ');
   if (command === '/adminlogin') return handleAdminLogin(send, message, argument);
+  if (command.startsWith('/') && !commandEnabled(command)) return;
+  if (command === '/help') return sendHelp(send, message.chat.id);
   if (command === '/products' || command === '/start') return sendProducts(send, message.chat.id);
   if (command === '/orders') return sendOrders(send, message.chat.id, message.from?.id);
   if (command === '/wallet') return sendWallet(send, message.chat.id, message.from?.id);
@@ -296,16 +307,20 @@ async function adminApi(req, res, send) {
       orders: store.orders.map(publicOrder),
       rechargeRequests: store.rechargeRequests.map(publicRecharge).reverse(),
       settings: store.settings,
+      commands: commands.map(command => ({ ...command, enabled: commandMenu(store).some(active => active.command === command.command) })),
     });
   }
   if (req.method === 'PATCH' && path === '/api/admin/settings') {
     const data = await bodyJson(req);
+    const nextCommands = Array.isArray(data.commands) ? commands.filter(command => data.commands.some(item => item?.command === command.command && item?.enabled !== false)).map(command => ({ command: command.command, description: String(data.commands.find(item => item?.command === command.command)?.description || command.description).slice(0, 256) })) : null;
+    if (nextCommands) await send('setMyCommands', { commands: nextCommands });
     updateStore(store => {
       store.settings = {
         ...store.settings,
-        shopName: String(data.shopName || '').slice(0, 80),
-        supportText: String(data.supportText || '').slice(0, 500),
-        manualPaymentInstructions: String(data.manualPaymentInstructions || '').slice(0, 2000),
+        ...(data.shopName !== undefined ? { shopName: String(data.shopName).slice(0, 80) } : {}),
+        ...(data.supportText !== undefined ? { supportText: String(data.supportText).slice(0, 500) } : {}),
+        ...(data.manualPaymentInstructions !== undefined ? { manualPaymentInstructions: String(data.manualPaymentInstructions).slice(0, 2000) } : {}),
+        ...(nextCommands ? { commands: nextCommands } : {}),
       };
     });
     return sendJson(res, 200, { ok: true });

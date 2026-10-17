@@ -1,5 +1,6 @@
 import { configured, publicUrl, secret, telegram } from '../config.js';
 import { commands } from '../bot.js';
+import { readStore } from '../shop-store.js';
 
 try {
   if (!configured) throw new Error('Set TELEGRAM_BOT_TOKEN and TELEGRAM_WEBHOOK_SECRET (32–256 letters, digits, _ or -) in .env or hosting environment variables.');
@@ -12,7 +13,8 @@ try {
     const health = await response.json();
     if (!response.ok || health.service !== 'ShahabTech Telegram shop' || !health.botConfigured) throw new Error('Public Node health endpoint is not configured/ready');
     const me = await telegram('getMe');
-    await telegram('setMyCommands', { commands });
+    const storeCommands = readStore().settings.commands;
+    await telegram('setMyCommands', { commands: Array.isArray(storeCommands) ? storeCommands : commands });
     await telegram('setWebhook', {
       url: new URL('/telegram/webhook', url).href,
       secret_token: secret,

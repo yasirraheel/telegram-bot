@@ -94,6 +94,14 @@ test('admin dashboard protects data and creates products through the owner sessi
     assert.ok(cookie);
     const summary = await doRequest('/api/admin/summary', { headers: { cookie } });
     assert.equal(summary.status, 200);
+    const initialSummary = JSON.parse(summary.body);
+    assert.equal(initialSummary.commands.find(command => command.command === 'ping').enabled, true);
+    assert.equal(initialSummary.commands.find(command => command.command === 'id').enabled, true);
+    const commandSettings = await doRequest('/api/admin/settings', { method: 'PATCH', headers: { cookie, 'content-type': 'application/json' }, body: JSON.stringify({ commands: initialSummary.commands.map(command => ({ ...command, enabled: !['ping', 'id'].includes(command.command) })) }) });
+    assert.equal(commandSettings.status, 200);
+    const sentBeforeDisabledCommand = sent.length;
+    assert.equal((await doRequest('/telegram/webhook', { method: 'POST', headers: { 'content-type': 'application/json', 'x-telegram-bot-api-secret-token': 'a'.repeat(32) }, body: JSON.stringify({ update_id: 4000, message: { chat: { id: 6976455363 }, from: { id: 6976455363 }, text: '/ping' } }) })).status, 200);
+    assert.equal(sent.length, sentBeforeDisabledCommand);
     const product = await doRequest('/api/admin/products', { method: 'POST', headers: { cookie, 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Test product', category: 'AI Prompts', description: 'Test delivery', priceStars: 5, pricePkr: 100, deliveryType: 'Activation code', stock: ['TEST-CODE-1', 'TEST-CODE-2'], published: true }) });
     assert.equal(product.status, 200);
     const createdProduct = JSON.parse(product.body);
