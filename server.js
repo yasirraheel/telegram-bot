@@ -1,7 +1,7 @@
 import http from 'node:http';
 import { createHmac, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
-import { adminUserId, configured, secret, telegram } from './config.js';
+import { adminUserId, configured, customEmojiIds, secret, telegram } from './config.js';
 import { commands, replyFor } from './bot.js';
 import { dashboardPage, loginPage } from './admin-page.js';
 import { newId, publicProduct, readStore, updateStore } from './shop-store.js';
@@ -105,11 +105,20 @@ function productButtonText(product) {
   return `${label}${prices ? ` · ${prices}` : ''}`.slice(0, 64);
 }
 
+// Telegram supports native inline-button styles. Keeping this in one helper
+// makes the shop's visual language consistent across product, wallet, and
+// checkout actions. `style` is understood by current Bot API clients as
+// primary (blue), success (green), or danger (red).
+function actionButton(text, callbackData, style = 'primary', icon = '') {
+  const iconCustomEmojiId = customEmojiIds[icon];
+  return { text, callback_data: callbackData, style, ...(iconCustomEmojiId ? { icon_custom_emoji_id: iconCustomEmojiId } : {}) };
+}
+
 function shopKeyboard(products) {
   return {
     inline_keyboard: [
-      ...products.map(product => [{ text: productButtonText(product), callback_data: `shop:p:${product.id}` }]),
-      [{ text: '▣ Wallet', callback_data: 'wallet:view' }, { text: '▤ My orders', callback_data: 'shop:orders' }],
+      ...products.map(product => [actionButton(productButtonText(product), `shop:p:${product.id}`, 'success', 'product')]),
+      [actionButton('▣ Wallet', 'wallet:view', 'primary', 'wallet'), actionButton('▤ My orders', 'shop:orders')],
     ],
   };
 }
@@ -122,7 +131,7 @@ function ordersText(orders) {
 
 async function sendOrders(send, chatId, userId) {
   const orders = readStore().orders.filter(order => String(order.userId) === String(userId)).slice(-10).reverse();
-  return send('sendMessage', { chat_id: chatId, text: ordersText(orders), reply_markup: { inline_keyboard: [[{ text: '▣ Wallet', callback_data: 'wallet:view' }, { text: '◂ Shop', callback_data: 'shop:list' }]] } });
+  return send('sendMessage', { chat_id: chatId, text: ordersText(orders), reply_markup: { inline_keyboard: [[actionButton('▣ Wallet', 'wallet:view'), actionButton('◂ Shop', 'shop:list')]] } });
 }
 
 function walletFor(store, userId) {
@@ -138,7 +147,7 @@ async function sendWallet(send, chatId, userId) {
   return send('sendMessage', {
     chat_id: chatId,
     text: walletText(readStore(), userId),
-    reply_markup: { inline_keyboard: [[{ text: '+ Recharge wallet', callback_data: 'wallet:recharge' }], [{ text: '◂ Shop', callback_data: 'shop:list' }]] },
+    reply_markup: { inline_keyboard: [[actionButton('+ Recharge wallet', 'wallet:recharge', 'success')], [actionButton('◂ Shop', 'shop:list')]] },
   });
 }
 
@@ -147,7 +156,7 @@ async function sendRechargeInstructions(send, chatId) {
   return send('sendMessage', {
     chat_id: chatId,
     text: `▣ RECHARGE WALLET\n\n${store.settings.manualPaymentInstructions}\n\nAfter you complete the transfer, send:\n/recharge AMOUNT TRANSACTION_REFERENCE\n\nExample:\n/recharge 1000 ABC12345\n\nYour request will stay pending until the shop owner verifies it.`,
-    reply_markup: { inline_keyboard: [[{ text: '▣ View wallet', callback_data: 'wallet:view' }], [{ text: '◂ Shop', callback_data: 'shop:list' }]] },
+    reply_markup: { inline_keyboard: [[actionButton('▣ View wallet', 'wallet:view')], [actionButton('◂ Shop', 'shop:list')]] },
   });
 }
 
@@ -214,7 +223,7 @@ async function handleWalletPurchase(send, query, product, orderId = newId('ord')
       return created;
     });
   } catch (error) {
-    return send('sendMessage', { chat_id: query.message.chat.id, text: error.message === 'Insufficient wallet balance' ? 'Your wallet balance is too low for this product. Recharge your wallet or choose Telegram Stars.' : 'That product is no longer available.', reply_markup: { inline_keyboard: [[{ text: '+ Recharge wallet', callback_data: 'wallet:recharge' }], [{ text: '◂ Shop', callback_data: 'shop:list' }]] } });
+    return send('sendMessage', { chat_id: query.message.chat.id, text: error.message === 'Insufficient wallet balance' ? 'Your wallet balance is too low for this product. Recharge your wallet or choose Telegram Stars.' : 'That product is no longer available.', reply_markup: { inline_keyboard: [[actionButton('+ Recharge wallet', 'wallet:recharge', 'success')], [actionButton('◂ Shop', 'shop:list')]] } });
   }
   return send('sendMessage', { chat_id: query.message.chat.id, text: `Payment completed from wallet.\n\n${deliveryMessage(order)}` });
 }
@@ -232,10 +241,10 @@ async function handleRechargeCommand(send, message, argument) {
   const amountPkr = Number(parts.shift());
   const reference = parts.join(' ').slice(0, 120);
   if (!Number.isInteger(amountPkr) || amountPkr < 1 || amountPkr > 10000000 || !reference) {
-    return send('sendMessage', { chat_id: message.chat.id, text: 'Use this format after making your manual transfer:\n/recharge AMOUNT TRANSACTION_REFERENCE\n\nExample:\n/recharge 1000 ABC12345', reply_markup: { inline_keyboard: [[{ text: '+ Recharge instructions', callback_data: 'wallet:recharge' }]] } });
+    return send('sendMessage', { chat_id: message.chat.id, text: 'Use this format after making your manual transfer:\n/recharge AMOUNT TRANSACTION_REFERENCE\n\nExample:\n/recharge 1000 ABC12345', reply_markup: { inline_keyboard: [[actionButton('+ Recharge instructions', 'wallet:recharge', 'success')]] } });
   }
   const request = createRechargeRequest(message.from?.id, message.chat.id, amountPkr, reference);
-  return send('sendMessage', { chat_id: message.chat.id, text: `Recharge request ${request.id} received.\n\nAmount: Rs ${amountPkr}\nReference: ${reference}\nStatus: Pending owner review\n\nYour wallet will be credited after the transfer is verified.`, reply_markup: { inline_keyboard: [[{ text: '▣ View wallet', callback_data: 'wallet:view' }], [{ text: '◂ Shop', callback_data: 'shop:list' }]] } });
+  return send('sendMessage', { chat_id: message.chat.id, text: `Recharge request ${request.id} received.\n\nAmount: Rs ${amountPkr}\nReference: ${reference}\nStatus: Pending owner review\n\nYour wallet will be credited after the transfer is verified.`, reply_markup: { inline_keyboard: [[actionButton('▣ View wallet', 'wallet:view')], [actionButton('◂ Shop', 'shop:list')]] } });
 }
 
 async function handleCallback(send, query) {
@@ -255,9 +264,9 @@ async function handleCallback(send, query) {
     const deliveryType = String(product.deliveryType || 'Activation code');
     const priceLines = [product.pricePkr ? `Wallet price: Rs ${product.pricePkr}` : '', product.priceStars ? `Telegram Stars price: ⭐ ${product.priceStars}` : ''].filter(Boolean).join('\n');
     const buttons = [];
-    if (product.pricePkr) buttons.push({ text: `▣ Pay from wallet · Rs ${product.pricePkr}`, callback_data: `shop:w:${product.id}` });
-    if (product.priceStars) buttons.push({ text: `⭐ Pay with Stars · ${product.priceStars}`, callback_data: `shop:b:${product.id}` });
-    return send('sendMessage', { chat_id: chatId, text: `▣ PRODUCT DETAILS\n\n${productEmoji(product)} ${product.name}\n\n${product.description}\n\n${priceLines}\nSTOCK: ${product.stock.length} available\nDELIVERY: Instant ${deliveryType.toLowerCase()}\n\nChoose a payment method.`, reply_markup: { inline_keyboard: [...buttons.map(button => [button]), [{ text: '◂ Back to shop', callback_data: 'shop:list' }]] } });
+    if (product.pricePkr) buttons.push(actionButton(`▣ Pay from wallet · Rs ${product.pricePkr}`, `shop:w:${product.id}`, 'success', 'buy'));
+    if (product.priceStars) buttons.push(actionButton(`⭐ Pay with Stars · ${product.priceStars}`, `shop:b:${product.id}`, 'success', 'buy'));
+    return send('sendMessage', { chat_id: chatId, text: `▣ PRODUCT DETAILS\n\n${productEmoji(product)} ${product.name}\n\n${product.description}\n\n${priceLines}\nSTOCK: ${product.stock.length} available\nDELIVERY: Instant ${deliveryType.toLowerCase()}\n\nChoose a payment method.`, reply_markup: { inline_keyboard: [...buttons.map(button => [button]), [actionButton('◂ Back to shop', 'shop:list')]] } });
   }
   if (action === 'b') {
     const product = readStore().products.find(item => item.id === id && item.published && item.stock.length);
@@ -265,7 +274,7 @@ async function handleCallback(send, query) {
     const deliveryType = String(product.deliveryType || 'Activation code');
     const orderId = newId('ord');
     pendingPurchases.set(`${chatId}:${product.id}`, { userId: String(query.from?.id), orderId, method: 'stars', expiresAt: Date.now() + 10 * 60 * 1000 });
-    return send('sendMessage', { chat_id: chatId, text: `▣ PURCHASE REVIEW\n\nOrder: ${orderId}\nProduct: ${product.name}\nQuantity: 1\nTotal: ⭐ ${product.priceStars}\nPayment: Telegram Stars\nDelivery: Instant ${deliveryType.toLowerCase()}\n\nContinue to Telegram payment?`, reply_markup: { inline_keyboard: [[{ text: `Proceed · ⭐ ${product.priceStars}`, callback_data: `shop:c:${product.id}` }], [{ text: 'Cancel', callback_data: `shop:x:${product.id}` }]] } });
+    return send('sendMessage', { chat_id: chatId, text: `▣ PURCHASE REVIEW\n\nOrder: ${orderId}\nProduct: ${product.name}\nQuantity: 1\nTotal: ⭐ ${product.priceStars}\nPayment: Telegram Stars\nDelivery: Instant ${deliveryType.toLowerCase()}\n\nContinue to Telegram payment?`, reply_markup: { inline_keyboard: [[actionButton(`Proceed · ⭐ ${product.priceStars}`, `shop:c:${product.id}`, 'success', 'buy')], [actionButton('Cancel', `shop:x:${product.id}`, 'danger', 'cancel')]] } });
   }
   if (action === 'w') {
     const product = readStore().products.find(item => item.id === id && item.published && item.stock.length);
@@ -273,26 +282,26 @@ async function handleCallback(send, query) {
     const balance = walletFor(readStore(), query.from?.id).balancePkr;
     const orderId = newId('ord');
     pendingPurchases.set(`${chatId}:${product.id}`, { userId: String(query.from?.id), orderId, method: 'wallet', expiresAt: Date.now() + 10 * 60 * 1000 });
-    return send('sendMessage', { chat_id: chatId, text: `▣ PURCHASE REVIEW\n\nOrder: ${orderId}\nProduct: ${product.name}\nQuantity: 1\nTotal: Rs ${product.pricePkr}\nWallet balance: Rs ${balance}\nAfter purchase: Rs ${Math.max(0, balance - product.pricePkr)}\nPayment: Wallet\nDelivery: Instant delivery\n\nConfirm wallet payment?`, reply_markup: { inline_keyboard: [[{ text: `Proceed · Rs ${product.pricePkr}`, callback_data: `shop:cw:${product.id}` }], [{ text: 'Cancel', callback_data: `shop:x:${product.id}` }]] } });
+    return send('sendMessage', { chat_id: chatId, text: `▣ PURCHASE REVIEW\n\nOrder: ${orderId}\nProduct: ${product.name}\nQuantity: 1\nTotal: Rs ${product.pricePkr}\nWallet balance: Rs ${balance}\nAfter purchase: Rs ${Math.max(0, balance - product.pricePkr)}\nPayment: Wallet\nDelivery: Instant delivery\n\nConfirm wallet payment?`, reply_markup: { inline_keyboard: [[actionButton(`Proceed · Rs ${product.pricePkr}`, `shop:cw:${product.id}`, 'success', 'buy')], [actionButton('Cancel', `shop:x:${product.id}`, 'danger', 'cancel')]] } });
   }
   if (action === 'c') {
     const pendingKey = `${chatId}:${id}`; const pending = pendingPurchases.get(pendingKey);
     const product = readStore().products.find(item => item.id === id && item.published && item.stock.length);
-    if (!pending || pending.method !== 'stars' || pending.expiresAt < Date.now() || String(pending.userId) !== String(query.from?.id)) return send('sendMessage', { chat_id: chatId, text: 'This purchase confirmation expired. Please choose the product again.', reply_markup: { inline_keyboard: [[{ text: '◂ Back to shop', callback_data: 'shop:list' }]] } });
-    if (!product) { pendingPurchases.delete(pendingKey); return send('sendMessage', { chat_id: chatId, text: 'That product is sold out. Please choose another product.', reply_markup: { inline_keyboard: [[{ text: '🛒 Back to shop', callback_data: 'shop:list' }]] } }); }
+    if (!pending || pending.method !== 'stars' || pending.expiresAt < Date.now() || String(pending.userId) !== String(query.from?.id)) return send('sendMessage', { chat_id: chatId, text: 'This purchase confirmation expired. Please choose the product again.', reply_markup: { inline_keyboard: [[actionButton('◂ Back to shop', 'shop:list')]] } });
+    if (!product) { pendingPurchases.delete(pendingKey); return send('sendMessage', { chat_id: chatId, text: 'That product is sold out. Please choose another product.', reply_markup: { inline_keyboard: [[actionButton('🛒 Back to shop', 'shop:list')]] } }); }
     pendingPurchases.delete(pendingKey);
     return send('sendInvoice', { chat_id: chatId, title: product.name.slice(0, 32), description: product.description.slice(0, 255), payload: invoicePayload(product.id, query.from.id, pending.orderId), currency: 'XTR', prices: [{ label: product.name.slice(0, 32), amount: product.priceStars }], provider_token: '' });
   }
   if (action === 'cw') {
     const pendingKey = `${chatId}:${id}`; const pending = pendingPurchases.get(pendingKey);
     const product = readStore().products.find(item => item.id === id && item.published && item.stock.length);
-    if (!pending || pending.method !== 'wallet' || pending.expiresAt < Date.now() || String(pending.userId) !== String(query.from?.id) || !product) return send('sendMessage', { chat_id: chatId, text: 'This wallet purchase expired. Please choose the product again.', reply_markup: { inline_keyboard: [[{ text: '◂ Back to shop', callback_data: 'shop:list' }]] } });
+    if (!pending || pending.method !== 'wallet' || pending.expiresAt < Date.now() || String(pending.userId) !== String(query.from?.id) || !product) return send('sendMessage', { chat_id: chatId, text: 'This wallet purchase expired. Please choose the product again.', reply_markup: { inline_keyboard: [[actionButton('◂ Back to shop', 'shop:list')]] } });
     pendingPurchases.delete(pendingKey);
     return handleWalletPurchase(send, query, product, pending.orderId);
   }
   if (action === 'x') {
     pendingPurchases.delete(`${chatId}:${id}`);
-    return send('sendMessage', { chat_id: chatId, text: 'Purchase cancelled. Your shop is still open.', reply_markup: { inline_keyboard: [[{ text: '◂ Back to shop', callback_data: 'shop:list' }]] } });
+    return send('sendMessage', { chat_id: chatId, text: 'Purchase cancelled. Your shop is still open.', reply_markup: { inline_keyboard: [[actionButton('◂ Back to shop', 'shop:list')]] } });
   }
 }
 

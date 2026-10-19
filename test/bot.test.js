@@ -116,11 +116,13 @@ test('admin dashboard protects data and creates products through the owner sessi
     assert.ok(menu);
     assert.match(menu.payload.text, /instant delivery/);
     assert.match(menu.payload.reply_markup.inline_keyboard[0][0].text, /^🧠 Test product · Rs 100 · ⭐ 5$/);
+    assert.equal(menu.payload.reply_markup.inline_keyboard[0][0].style, 'success');
 
     assert.equal((await webhook({ callback_query: { id: 'q-product', from: { id: 6976455363 }, message: { chat: { id: 6976455363 } }, data: `shop:p:${createdProduct.id}` } }, 4003)).status, 200);
     const details = sent.find(item => item.method === 'sendMessage' && item.payload.text.includes('PRODUCT DETAILS'));
     assert.ok(details);
     assert.match(details.payload.reply_markup.inline_keyboard[0][0].text, /Pay from wallet/);
+    assert.equal(details.payload.reply_markup.inline_keyboard[0][0].style, 'success');
 
     assert.equal((await webhook({ message: { chat: { id: 6976455363 }, from: { id: 6976455363 }, text: '/recharge 1000 ABC12345' } }, 4004)).status, 200);
     const rechargeSummary = JSON.parse((await doRequest('/api/admin/summary', { headers: { cookie } })).body);
@@ -137,6 +139,8 @@ test('admin dashboard protects data and creates products through the owner sessi
     assert.ok(confirmation);
     assert.match(confirmation.payload.text, /Telegram Stars/);
     assert.equal(confirmation.payload.reply_markup.inline_keyboard[0][0].callback_data, `shop:c:${createdProduct.id}`);
+    assert.equal(confirmation.payload.reply_markup.inline_keyboard[0][0].style, 'success');
+    assert.equal(confirmation.payload.reply_markup.inline_keyboard[1][0].style, 'danger');
 
     assert.equal((await webhook({ callback_query: { id: 'q-confirm', from: { id: 6976455363 }, message: { chat: { id: 6976455363 } }, data: `shop:c:${createdProduct.id}` } }, 4008)).status, 200);
     const invoice = sent.find(item => item.method === 'sendInvoice');
